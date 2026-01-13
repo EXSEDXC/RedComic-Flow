@@ -1,0 +1,17 @@
+# 浏览器自动化与网页抓取
+selenium
+webdriver-manager
+DrissionPage
+
+# 接口调用与环境变量管理
+openai
+requests
+python-dotenv
+
+# 数据处理与可视化
+pandas
+matplotlib
+
+# 辅助工具与多媒体
+pygame
+pyperclip
