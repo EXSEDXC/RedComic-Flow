@@ -1,0 +1,9 @@
+.env
+主题分配.xls
+cookies.json
+app_config.json
+RedComic_Final_Fixed/
+__pycache__/
+images/
+interaction_data.csv
+series_story.csv
