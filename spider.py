@@ -3,7 +3,10 @@ import csv
 import time
 import requests
 import json
-import shutil  
+import shutil
+import re
+from PIL import Image
+from io import BytesIO
 from DrissionPage import ChromiumPage, ChromiumOptions
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -28,6 +31,34 @@ prompt = """请严格判断这张图片是否为典型的「六格漫画」：
 只回答以下两种之一，不要输出任何其他文字：
 是
 否"""
+
+def is_quality_ok(img_url, text_content, min_resolution, min_text_len):
+    """
+    基础质量过滤：检查分辨率和文本长度
+    """
+    # 1. 文本长度校验 (匹配中文字符)
+    chinese_chars = re.findall(r'[\u4e00-\u9fa5]', text_content)
+    if len(chinese_chars) < min_text_len:
+        print(f"  - [跳过] 文本字数不足 ({len(chinese_chars)} < {min_text_len})")
+        return False
+
+    # 2. 分辨率校验
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.xiaohongshu.com/'}
+        response = requests.get(img_url, headers=headers, timeout=5)
+        if response.status_code == 200:
+            img = Image.open(BytesIO(response.content))
+            width, height = img.size
+            if width < min_resolution or height < min_resolution:
+                print(f"  - [跳过] 分辨率过低 ({width}x{height} < {min_resolution}p)")
+                return False
+        else:
+            return False
+    except Exception as e:
+        print(f"  ! 分辨率检测异常: {e}")
+        return False
+
+    return True
 
 def is_six_panel_comic(img_url, api_key):
     """使用视觉模型判断图片是否为六格漫画"""
@@ -76,7 +107,13 @@ def main():
     conf = get_config()
     KEYWORD = conf.get("keyword", "抽卡漫画")
     MAX_NOTES = int(conf.get("max_notes", 10))
-    USE_FILTER = conf.get("use_qwen_filter", False)
+    
+    # 过滤开关与参数
+    USE_FILTER = conf.get("use_qwen_filter", False)      # 大模型识别开关
+    USE_QUALITY_CHECK = conf.get("use_quality_check", False) # 基础过滤开关
+    MIN_RES = int(conf.get("min_resolution", 500))       # 最低分辨率
+    MIN_TEXT = int(conf.get("min_text_len", 10))         # 最低中文字数
+    
     API_KEY = os.getenv("DASHSCOPE_API_KEY")
     SAVE_PATH = 'RedComic_Final_Fixed'
 
@@ -84,53 +121,52 @@ def main():
     co = ChromiumOptions().set_argument('--disable-blink-features=AutomationControlled')
     page = ChromiumPage(co)
     
-    print(f"任务启动 | 目标有效数量: {MAX_NOTES} | 视觉过滤: {USE_FILTER}")
+    print(f"任务启动 | 目标: {MAX_NOTES} | 基础过滤: {USE_QUALITY_CHECK} | AI识别: {USE_FILTER}")
     target_url = f'https://www.xiaohongshu.com/search_result?keyword={KEYWORD}'
     page.get(target_url)
     
-    # 创建保存目录和CSV文件
     if not os.path.exists(SAVE_PATH): os.makedirs(SAVE_PATH)
-    csv_f = open(f'{SAVE_PATH}/metadata.csv', 'a', encoding='utf-8-sig', newline='')
+    
+    # 检查文件是否存在以决定是否写入表头
+    csv_path = f'{SAVE_PATH}/metadata.csv'
+    file_exists = os.path.exists(csv_path)
+    csv_f = open(csv_path, 'a', encoding='utf-8-sig', newline='')
     writer = csv.writer(csv_f)
+    
+    # 修改：添加表头
+    if not file_exists:
+        writer.writerow(['序号', '标题', '正文', '链接', '图片数量'])
 
-    # 初始化统计变量
     count, history, scroll = 0, set(), 0
     
-    # 主采集循环：当有效笔记数达到目标数量时停止
     while count < MAX_NOTES and scroll < 100:
         items = page.eles('.note-item')
-        target_href = None
-        target_ele = None
+        target_href, target_ele = None, None
 
-        # 在搜索结果中寻找可用的笔记链接
         for item in items:
             try:
                 anchor = item.ele('tag:a', timeout=0.1)
                 href = anchor.attr('href')
                 if href and href not in history:
-                    # 跳过视频内容，只处理图文笔记
                     if not item.ele('.play-icon', timeout=0.1): 
                         target_ele, target_href = item, href
                         break
             except: continue
         
-        # 如果未找到新笔记，则滚动页面继续查找
         if not target_ele:
             page.scroll.down(2000); scroll += 1; time.sleep(2)
             continue
 
         try:
-            # 记录已访问的笔记链接
             history.add(target_href)
             scroll = 0
             
-            # 进入笔记详情页
             target_ele.scroll.to_see(); target_ele.click()
             popup = page.wait.ele_displayed('.note-container', timeout=8)
             if not popup:
                 clean_and_back(page, target_url); continue
 
-            # 第一步：提取笔记中的所有图片链接
+            # 提取图片链接
             img_urls = []
             media = popup.ele('.media-container')
             if media:
@@ -139,36 +175,51 @@ def main():
                     if src and 'xhscdn.com' in src and 'avatar' not in src:
                         img_urls.append(src.split('?')[0])
             
-            # 第二步：如果启用过滤，使用AI模型识别六格漫画
-            if USE_FILTER and img_urls:
+            # 提取正文内容用于字数过滤和保存
+            note_desc = popup.ele('.desc').text if popup.ele('.desc') else ""
+            
+            # --- 过滤逻辑开始 ---
+            passed = True
+            
+            # 第一步：基础质量过滤 (分辨率 + 字数)
+            if USE_QUALITY_CHECK and img_urls:
+                if not is_quality_ok(img_urls[0], note_desc, MIN_RES, MIN_TEXT):
+                    passed = False
+            
+            # 第二步：如果基础过滤通过且启用了AI过滤，则进行大模型识别
+            if passed and USE_FILTER and img_urls:
                 print(f"  > 正在进行 AI 识别: {target_href}")
                 if not is_six_panel_comic(img_urls[0], API_KEY):
                     print("  - [跳过] 判定非六格漫画")
-                    clean_and_back(page, target_url); continue
+                    passed = False
+            
+            if not passed:
+                clean_and_back(page, target_url)
+                continue
+            # --- 过滤逻辑结束 ---
 
-            # 第三步：通过识别后，创建对应文件夹
+            # 第三步：创建对应文件夹
             note_idx = count + 1
             temp_folder = os.path.join(SAVE_PATH, f"note_{note_idx}")
             if not os.path.exists(temp_folder): os.makedirs(temp_folder)
             
-            # 第四步：下载图片到文件夹
+            # 第四步：下载图片
             success_dl = 0
             unique_urls = list(dict.fromkeys(img_urls))[:18]
             for i, url in enumerate(unique_urls):
                 if download_img(url, temp_folder, f"{i+1}"):
                     success_dl += 1
             
-            # 第五步：最终校验，只有成功下载到图片才算有效采集
+            # 第五步：保存结果
             if success_dl > 0:
                 title = popup.ele('.title').text if popup.ele('.title') else "无标题"
-                writer.writerow([note_idx, title, target_href, success_dl])
+                # 修改：保存数据中增加正文 note_desc
+                writer.writerow([note_idx, title, note_desc, target_href, success_dl])
                 csv_f.flush()
                 print(f"  + [成功] 第 {note_idx} 组保存完成: {title[:10]}...")
-                count += 1  # 计数器递增
+                count += 1 
             else:
-                # 如果没有下载到图片，清理空文件夹
-                if os.path.exists(temp_folder):
-                    shutil.rmtree(temp_folder)
+                if os.path.exists(temp_folder): shutil.rmtree(temp_folder)
                 print("  ! [失败] 未采集到有效图片，文件夹已清理")
 
             clean_and_back(page, target_url)

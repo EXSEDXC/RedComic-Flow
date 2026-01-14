@@ -1,17 +1,19 @@
-# 浏览器自动化与网页抓取
-selenium
-webdriver-manager
-DrissionPage
+# 基础框架与 GUI
+pygame          # 用于运行 main_dashboard.py 可视化控制台
 
-# 接口调用与环境变量管理
-openai
-requests
-python-dotenv
+# 网页自动化与爬虫 
+DrissionPage    # 用于 spider.py 
+selenium        # 用于 auto_publish_batch.py 和 fetch_interaction_stats.py
+webdriver-manager # 自动管理 Chrome 驱动插件
 
-# 数据处理与可视化
-pandas
-matplotlib
+# AI 与 大模型对接
+openai          # 用于调用阿里云百炼 (DashScope) 的兼容接口
+python-dotenv   # 用于从 .env 文件加载 API Key 敏感信息
 
-# 辅助工具与多媒体
-pygame
-pyperclip
+# 图片处理与网络请求
+Pillow          # 用于图片尺寸检查、格式转换
+requests        # 用于下载图片资源
+
+# 数据分析与可视化
+pandas          # 用于处理互动数据 CSV
+matplotlib      # 用于生成 visualize_stats.py 中的统计图表
