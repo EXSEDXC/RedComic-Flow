@@ -38,7 +38,8 @@ def generate_batch_story(image_paths):
         {
             "type": "text", 
             "text": (
-                '''你现在是纯文本小说作者，严禁使用任何 Markdown 语法。
+                '''
+你现在是纯文本小说作者，严禁使用任何 Markdown 语法。
 请严格遵守以下所有限制条件，否则视为严重违规：
 
 - 禁止出现任何形式的 ** 加粗

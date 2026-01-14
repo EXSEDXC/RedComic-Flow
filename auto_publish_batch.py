@@ -210,8 +210,8 @@ def start():
                 upload_note(img_names, title, "\n".join(body_parts), tags)
                 
                 # 模拟真人操作间隔，规避风控检测
-                print(f"[Wait] 进入 45s 发布冷却期...")
-                time.sleep(45)
+                print(f"[Wait] 进入 10s 发布冷却期...")
+                time.sleep(10)
     finally:
         browser.quit()
         print("\n>>> 脚本运行结束")

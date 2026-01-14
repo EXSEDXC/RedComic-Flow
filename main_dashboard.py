@@ -13,7 +13,7 @@ pygame.init()
 
 WIDTH, HEIGHT = 1100, 750
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("XHS 自动化全链路控制台 v3.3 - 视觉增强版")
+pygame.display.set_caption("小红书自动化全链路控制台")
 
 # 颜色配置
 BG_COLOR = (10, 15, 25)
